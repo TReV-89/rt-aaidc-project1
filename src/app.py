@@ -7,6 +7,8 @@ from vectordb import VectorDB
 from langchain_openai import ChatOpenAI
 from langchain_groq import ChatGroq
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_community.document_loaders import TextLoader
+
 
 # Load environment variables
 load_dotenv()
@@ -24,8 +26,22 @@ def load_documents() -> List[str]:
     # HINT: Read the documents from the data directory
     # HINT: Return a list of documents
     # HINT: Your implementation depends on the type of documents you are using (.txt, .pdf, etc.)
+    # List to store all documents
 
     # Your implementation here
+    data_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+    for file in os.listdir(data_dir):
+        if file.endswith(".txt"):
+            file_path = os.path.join(data_dir, file)
+            try:
+                loader = TextLoader(file_path)
+                loaded_docs = loader.load()
+                results.extend(loaded_docs)
+                print(f"Successfully loaded: {file}")
+            except Exception as e:
+                print(f"Error loading {file}: {str(e)}")
+
+    print(f"\nTotal documents loaded: {len(results)}")
     return results
 
 
@@ -53,7 +69,33 @@ class RAGAssistant:
         # HINT: Use ChatPromptTemplate.from_template() with a template string
         # HINT: Your template should include placeholders for {context} and {question}
         # HINT: Design your prompt to effectively use retrieved context to answer questions
-        self.prompt_template = None  # Your implementation here
+        self.prompt_template = ChatPromptTemplate(
+            [
+                (
+                    "system",
+                    """role: A helpful assistant that can answer the users questions given some relevant documents.
+                        style_or_tone:
+                        - Use clear, concise language with bullet points where appropriate.
+                        instruction: 
+                        -Given the some documents that should be relevant to the user's question, answer the user's question.
+                        output_constraints:
+                        - Only answer questions based on the provided documents.
+                        - If the user's question is not related to the documents, then you SHOULD NOT answer the question. Say "The question is not answerable given the documents".
+                        - Never answer a question from your own knowledge.
+                        output_format:
+                            - Provide answers in markdown format.
+                            - Provide concise answers in bullet points when relevant.
+            """,
+                ),
+                (
+                    "human",
+                    """Use the following context to answer the question.\n\n
+            Context:\n{context}\n\n
+            Question: {question}\n\n
+            Answer:""",
+                ),
+            ]
+        )
 
         # Create the chain
         self.chain = self.prompt_template | self.llm | StrOutputParser()
@@ -66,14 +108,14 @@ class RAGAssistant:
         Tries OpenAI, Groq, and Google Gemini in that order.
         """
         # Check for OpenAI API key
-        if os.getenv("OPENAI_API_KEY"):
-            model_name = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-            print(f"Using OpenAI model: {model_name}")
-            return ChatOpenAI(
-                api_key=os.getenv("OPENAI_API_KEY"), model=model_name, temperature=0.0
-            )
+        # if os.getenv("OPENAI_API_KEY"):
+        #     model_name = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        #     print(f"Using OpenAI model: {model_name}")
+        #     return ChatOpenAI(
+        #         api_key=os.getenv("OPENAI_API_KEY"), model=model_name, temperature=0.0
+        #     )
 
-        elif os.getenv("GROQ_API_KEY"):
+        if os.getenv("GROQ_API_KEY"):
             model_name = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
             print(f"Using Groq model: {model_name}")
             return ChatGroq(
@@ -122,6 +164,9 @@ class RAGAssistant:
         # HINT: Return a string answer from the LLM
 
         # Your implementation here
+        search_results = self.vector_db.search(input, n_results=n_results)
+        context = "\n".join(search_results["documents"])
+        llm_answer = self.chain.invoke({"context": context, "question": input})
         return llm_answer
 
 
@@ -146,7 +191,7 @@ def main():
             if question.lower() == "quit":
                 done = True
             else:
-                result = assistant.query(question)
+                result = assistant.invoke(question)
                 print(result)
 
     except Exception as e:

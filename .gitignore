@@ -1,6 +1,7 @@
 # Environments
 venv/
 .venv/
+virt
 
 
 # Environment variables
